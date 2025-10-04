@@ -1,0 +1,119 @@
+### Fine-tuning configuration example
+### This config demonstrates how to use the new finetune.py script
+
+exp_dir: exp/CAMPPlus-finetune
+gpus: "[0,1]"
+num_avg: 5
+enable_amp: False
+
+seed: 42
+num_epochs: 30  # Fewer epochs for fine-tuning
+save_epoch_interval: 5
+log_batch_interval: 100
+
+# Checkpoint to load for fine-tuning
+# This should be a pretrained model checkpoint (.pt file)
+checkpoint: exp/CAMPPlus-TSTP-emb512-fbank80-num_frms200-aug0.6-spTrue-saFalse-ArcMargin-SGD-epoch150/models/model_150.pt
+
+dataloader_args:
+  batch_size: 64  # Can use smaller batch size for fine-tuning
+  num_workers: 8
+  pin_memory: False
+  prefetch_factor: 4
+  drop_last: True
+
+dataset_args:
+  sample_num_per_epoch: 0
+  shuffle: True
+  shuffle_args:
+    shuffle_size: 2500
+  filter: True
+  filter_args:
+    min_num_frames: 100
+    max_num_frames: 800
+  resample_rate: 16000
+  speed_perturb: False  # Usually disabled for fine-tuning
+  num_frms: 200
+  aug_prob: 0.6
+  fbank_args:
+    num_mel_bins: 80
+    frame_shift: 10
+    frame_length: 25
+    dither: 1.0
+  spec_aug: False
+  spec_aug_args:
+    num_t_mask: 1
+    num_f_mask: 1
+    max_t: 10
+    max_f: 8
+    prob: 0.6
+
+model: CAMPPlus
+model_init: null
+model_args:
+  feat_dim: 80
+  embed_dim: 512
+  pooling_func: "TSTP"
+
+projection_args:
+  project_type: "arc_margin"
+  scale: 32.0
+  easy_margin: False
+
+# Fine-tuning specific configuration
+finetune_config:
+  # Freeze strategy options:
+  #   - "all": Freeze all layers (then unfreeze based on other settings)
+  #   - "none": Don't freeze any layers (full fine-tuning)
+  #   - "exclude": Freeze all layers EXCEPT those matching freeze_layers patterns
+  #   - "only": Freeze ONLY layers matching freeze_layers patterns
+  freeze_strategy: "exclude"
+
+  # Layer patterns to freeze/unfreeze (depends on freeze_strategy)
+  # These are substring matches against layer names
+  # Examples for CAMPPlus:
+  #   - "pool": pooling layers
+  #   - "projection": projection layer (usually kept trainable)
+  #   - "xvector.block3": last dense block
+  #   - "xvector.transit3": last transition layer
+  #   - "xvector.stats": statistics pooling
+  #   - "xvector.dense": final dense layer
+  #   - "head": feature extraction head
+  freeze_layers:
+    - "pool"
+    - "xvector.block3"
+    - "xvector.transit3"
+    - "xvector.out_nonlinear"
+    - "xvector.stats"
+    - "xvector.dense"
+
+  # Whether to freeze the projection layer (usually False for fine-tuning)
+  freeze_projection: False
+
+  # Whether to disable speed perturbation (recommended for fine-tuning)
+  disable_speed_perturb: True
+
+margin_scheduler: MarginScheduler
+margin_update:
+  initial_margin: 0.0
+  final_margin: 0.2
+  increase_start_epoch: 5
+  fix_start_epoch: 15
+  update_margin: True
+  increase_type: "exp"
+
+loss: CrossEntropyLoss
+loss_args: {}
+
+optimizer: SGD
+optimizer_args:
+  momentum: 0.9
+  nesterov: True
+  weight_decay: 0.0001
+
+scheduler: ExponentialDecrease
+scheduler_args:
+  initial_lr: 0.01  # Lower learning rate for fine-tuning
+  final_lr: 0.00001
+  warm_up_epoch: 2
+  warm_from_zero: False

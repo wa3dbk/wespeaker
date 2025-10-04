@@ -1,0 +1,94 @@
+### Fine-tuning ResNet model example
+### Demonstrates freezing only early layers (freeze_strategy: "only")
+
+exp_dir: exp/ResNet-finetune
+gpus: "[0,1]"
+num_avg: 5
+enable_amp: False
+
+seed: 42
+num_epochs: 30
+save_epoch_interval: 5
+log_batch_interval: 100
+
+# Checkpoint to load for fine-tuning
+checkpoint: path/to/pretrained/resnet_model.pt
+
+dataloader_args:
+  batch_size: 64
+  num_workers: 8
+  pin_memory: False
+  prefetch_factor: 4
+  drop_last: True
+
+dataset_args:
+  sample_num_per_epoch: 0
+  shuffle: True
+  shuffle_args:
+    shuffle_size: 2500
+  filter: True
+  filter_args:
+    min_num_frames: 100
+    max_num_frames: 800
+  resample_rate: 16000
+  speed_perturb: False
+  num_frms: 200
+  aug_prob: 0.6
+  fbank_args:
+    num_mel_bins: 80
+    frame_shift: 10
+    frame_length: 25
+    dither: 1.0
+  spec_aug: False
+
+model: ResNet34  # or ResNet18, ResNet50, etc.
+model_init: null
+model_args:
+  feat_dim: 80
+  embed_dim: 256
+  pooling_func: "ASTP"
+
+projection_args:
+  project_type: "arc_margin"
+  scale: 32.0
+  easy_margin: False
+
+# Fine-tuning config: Freeze ONLY early layers, train the rest
+finetune_config:
+  freeze_strategy: "only"  # Freeze ONLY the specified layers
+
+  # For ResNet, freeze early layers (conv1, bn1, layer1, layer2)
+  # and train later layers (layer3, layer4, pool, etc.)
+  freeze_layers:
+    - "conv1"
+    - "bn1"
+    - "layer1"
+    - "layer2"
+
+  freeze_projection: False
+  disable_speed_perturb: True
+
+margin_scheduler: MarginScheduler
+margin_update:
+  initial_margin: 0.0
+  final_margin: 0.2
+  increase_start_epoch: 5
+  fix_start_epoch: 15
+  update_margin: True
+  increase_type: "exp"
+
+loss: CrossEntropyLoss
+loss_args: {}
+
+optimizer: SGD
+optimizer_args:
+  momentum: 0.9
+  nesterov: True
+  weight_decay: 0.0001
+
+scheduler: ExponentialDecrease
+scheduler_args:
+  initial_lr: 0.01
+  final_lr: 0.00001
+  warm_up_epoch: 2
+  warm_from_zero: False

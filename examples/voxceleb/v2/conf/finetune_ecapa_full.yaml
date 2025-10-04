@@ -1,0 +1,87 @@
+### Full fine-tuning ECAPA-TDNN example
+### Demonstrates unfreezing all layers (freeze_strategy: "none")
+
+exp_dir: exp/ECAPA-TDNN-finetune-full
+gpus: "[0,1]"
+num_avg: 5
+enable_amp: False
+
+seed: 42
+num_epochs: 20
+save_epoch_interval: 5
+log_batch_interval: 100
+
+# Checkpoint to load for fine-tuning
+checkpoint: path/to/pretrained/ecapa_model.pt
+
+dataloader_args:
+  batch_size: 64
+  num_workers: 8
+  pin_memory: False
+  prefetch_factor: 4
+  drop_last: True
+
+dataset_args:
+  sample_num_per_epoch: 0
+  shuffle: True
+  shuffle_args:
+    shuffle_size: 2500
+  filter: True
+  filter_args:
+    min_num_frames: 100
+    max_num_frames: 800
+  resample_rate: 16000
+  speed_perturb: False
+  num_frms: 200
+  aug_prob: 0.6
+  fbank_args:
+    num_mel_bins: 80
+    frame_shift: 10
+    frame_length: 25
+    dither: 1.0
+  spec_aug: False
+
+model: ECAPA_TDNN_GLOB_c1024  # or other ECAPA variants
+model_init: null
+model_args:
+  feat_dim: 80
+  embed_dim: 192
+  pooling_func: "ASTP"
+
+projection_args:
+  project_type: "arc_margin"
+  scale: 32.0
+  easy_margin: False
+
+# Fine-tuning config: Full fine-tuning (all layers trainable)
+finetune_config:
+  freeze_strategy: "none"  # Don't freeze any layers
+
+  # freeze_layers is ignored when strategy is "none"
+  freeze_layers: []
+
+  freeze_projection: False
+  disable_speed_perturb: True
+
+margin_scheduler: MarginScheduler
+margin_update:
+  initial_margin: 0.0
+  final_margin: 0.2
+  increase_start_epoch: 3
+  fix_start_epoch: 10
+  update_margin: True
+  increase_type: "exp"
+
+loss: CrossEntropyLoss
+loss_args: {}
+
+optimizer: Adam  # Can use Adam for full fine-tuning
+optimizer_args:
+  weight_decay: 0.00001
+
+scheduler: ExponentialDecrease
+scheduler_args:
+  initial_lr: 0.0001  # Very low learning rate for full fine-tuning
+  final_lr: 0.00001
+  warm_up_epoch: 1
+  warm_from_zero: False

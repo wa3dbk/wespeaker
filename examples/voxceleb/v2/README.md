@@ -101,3 +101,24 @@ bash run_wavlm.sh --stage 3 --stop_stage 9
 | Frozen => Joint ft => Joint lmft | × | × | 0.521 | 0.626 | 1.344 |
 |                                  | √ | × | 0.495 | 0.588 | 1.247 |
 |                                  | √ | √ | **0.415** | **0.551** | **1.118** |
+
+## Model fine-tuning
+
+  WeSpeaker now supports flexible fine-tuning of pretrained models on new datasets with different speaker sets. The fine-tuning framework
+   allows you to:
+
+  * Adapt any pretrained model (CAMPPlus, ResNet, ECAPA-TDNN, etc.) to your custom dataset
+  * Control which layers to freeze/unfreeze using pattern-based configuration
+  * Choose from multiple freezing strategies (freeze all except last layers, freeze only early layers, full fine-tuning, etc.)
+
+  **Quick example:**
+  ```bash
+  # Fine-tune ResNet34 on custom data
+  torchrun --nproc_per_node=2 \
+    wespeaker/bin/finetune.py \
+    --config conf/finetune_resnet34.yaml \
+    --train_data data/my_dataset/train/wav.scp \
+    --train_label data/my_dataset/train/utt2spk
+
+  For detailed instructions, configuration examples, best practices, and troubleshooting, see [this link](README_finetune.md)
+
