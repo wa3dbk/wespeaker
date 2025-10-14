@@ -60,7 +60,8 @@ pre-commit install  # for clean and tidy code
 ```
 
 ## 🔥 News
-* 2025.01.04: Add support for model fine-tuning, see [fine-tuning guidelines](examples/voxceleb/v2/README_finetune.md) for more details.
+* 2025.10.14: Add the possibility to change embed_dim during model fine-tuning, see [fine-tuning guidelines](examples/voxceleb/v2/README_finetune.md) for more details.
+* 2025.10.04: Add support for model fine-tuning, see [fine-tuning guidelines](examples/voxceleb/v2/README_finetune.md) for more details.
 * 2025.02.23: Add support for the Xi-vector, see [#404](https://github.com/wenet-e2e/wespeaker/pull/404).
 * 2024.09.03: Support the SimAM_ResNet and the model pretrained on VoxBlink2, check [Pretrained Models](docs/pretrained.md) for the pretrained model, [VoxCeleb Recipe](https://github.com/wenet-e2e/wespeaker/tree/master/examples/voxceleb/v2) for the super performance, and [python usage](docs/python_package.md) for the command line usage!
 * 2024.08.30: We support whisper_encoder based frontend and propose the [Whisper-PMFA](https://arxiv.org/pdf/2408.15585) framework, check [#356](https://github.com/wenet-e2e/wespeaker/pull/356).
