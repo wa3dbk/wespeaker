@@ -28,8 +28,8 @@ data/
 Download a pretrained model or use your own:
 ```bash
 # Example: Download a pretrained model
-wget https://wespeaker-1256283475.cos.ap-shanghai.myqcloud.com/models/voxceleb/voxceleb_resnet34.tar.gz
-tar -xzf voxceleb_resnet34.tar.gz
+mkdir -p pretraining_models
+wget https://huggingface.co/Wespeaker/wespeaker-voxceleb-resnet34/resolve/main/avg_model.pt -O prerained_models/wespeaker-voxceleb-resnet34.pt
 ```
 
 ### 3. Create a Fine-tuning Configuration
