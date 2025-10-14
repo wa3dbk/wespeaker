@@ -1,0 +1,97 @@
+### Fine-tuning ResNet with reduced embedding dimension
+### This config demonstrates changing embedding dim from 256 to 128
+
+exp_dir: exp/ResNet34-finetune-emb128
+gpus: "[0,1]"
+num_avg: 5
+enable_amp: False
+
+seed: 42
+num_epochs: 30
+save_epoch_interval: 5
+log_batch_interval: 100
+
+# Checkpoint to load for fine-tuning (pretrained with embed_dim=256)
+checkpoint: pretrained_models/voxceleb_resnet34/avg_model.pt
+
+dataloader_args:
+  batch_size: 64
+  num_workers: 8
+  pin_memory: False
+  prefetch_factor: 4
+  drop_last: True
+
+dataset_args:
+  sample_num_per_epoch: 0
+  shuffle: True
+  shuffle_args:
+    shuffle_size: 2500
+  filter: True
+  filter_args:
+    min_num_frames: 100
+    max_num_frames: 800
+  resample_rate: 16000
+  speed_perturb: False
+  num_frms: 200
+  aug_prob: 0.6
+  fbank_args:
+    num_mel_bins: 80
+    frame_shift: 10
+    frame_length: 25
+    dither: 1.0
+  spec_aug: False
+
+model: ResNet34
+model_args:
+  feat_dim: 80
+  embed_dim: 128  # New embedding dimension (pretrained was 256)
+  pooling_func: "ASTP"
+  two_emb_layer: False
+
+projection_args:
+  project_type: "arc_margin"
+  scale: 32.0
+  easy_margin: False
+
+# Fine-tuning config with embedding dimension change
+finetune_config:
+  freeze_strategy: "only"
+
+  # Freeze early layers, train later layers + embedding
+  freeze_layers:
+    - "conv1"
+    - "bn1"
+    - "layer1"
+    - "layer2"
+
+  freeze_projection: False
+  disable_speed_perturb: True
+
+  # NEW: Specify new embedding dimension to replace the embedding layer
+  # The embedding layer (seg_1) will be replaced with new dimension and trained
+  new_embed_dim: 128  # Reduces model size and can improve efficiency
+
+margin_scheduler: MarginScheduler
+margin_update:
+  initial_margin: 0.0
+  final_margin: 0.2
+  increase_start_epoch: 5
+  fix_start_epoch: 15
+  update_margin: True
+  increase_type: "exp"
+
+loss: CrossEntropyLoss
+loss_args: {}
+
+optimizer: SGD
+optimizer_args:
+  momentum: 0.9
+  nesterov: True
+  weight_decay: 0.0001
+
+scheduler: ExponentialDecrease
+scheduler_args:
+  initial_lr: 0.01
+  final_lr: 0.00001
+  warm_up_epoch: 2
+  warm_from_zero: False
