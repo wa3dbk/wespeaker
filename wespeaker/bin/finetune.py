@@ -190,6 +190,7 @@ def setup_model_for_finetuning(
 
         # Update embed_dim in configs for projection layer
         configs['model_args']['embed_dim'] = new_embed_dim
+        configs['projection_args']['embed_dim'] = new_embed_dim
 
         # Always ensure embedding layers are trainable
         embedding_layer_names = ['seg_1', 'seg_2', 'seg_bn_1', 'xvector.dense', 'fc6']
