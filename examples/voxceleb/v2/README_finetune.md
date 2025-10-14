@@ -268,6 +268,192 @@ scheduler_args:
 
 ## Advanced Configuration Options
 
+### Changing Embedding Dimension
+
+**NEW FEATURE**: You can change the embedding dimension during fine-tuning to create smaller, more efficient models.
+
+The embedding layer (the final layer before the projection that produces speaker embeddings) will be replaced with a new dimension and trained from scratch, while keeping the pretrained feature extractor frozen or partially frozen.
+
+#### Basic Configuration
+
+```yaml
+model_args:
+  embed_dim: 128  # New embedding size (pretrained might be 256)
+
+finetune_config:
+  new_embed_dim: 128  # Must match model_args.embed_dim
+```
+
+#### How It Works
+
+When you specify `new_embed_dim`, the fine-tuning script performs the following steps:
+
+1. **Loads pretrained checkpoint** and strips out:
+   - Projection layer (always replaced)
+   - Embedding layers (specific to architecture)
+
+2. **Loads remaining weights** into the new model (feature extractor layers)
+
+3. **Applies layer freezing** strategy (before replacing embedding layer)
+
+4. **Replaces embedding layer** with new dimension:
+
+   **ResNet Models** (ResNet18, ResNet34, ResNet50, ResNet101, ResNet152, ResNet221, ResNet293):
+   ```
+   Architecture: ... → layer4 → pool → seg_1 → [seg_bn_1 → seg_2] → projection
+                                       ↑        ↑            ↑
+                                    Replaced  (optional, if two_emb_layer=True)
+   ```
+   - **Replaced layers**:
+     - `seg_1`: Linear(pool_out_dim → new_embed_dim)
+     - `seg_bn_1`: BatchNorm1d(new_embed_dim) if `two_emb_layer=True`, else Identity
+     - `seg_2`: Linear(new_embed_dim → new_embed_dim) if `two_emb_layer=True`, else Identity
+   - **Input dimension**: Determined by pooling layer output (`pool_out_dim`)
+   - **Output dimension**: `new_embed_dim`
+   - **Note**: Most pretrained models use `two_emb_layer=False` (CNSRC 2022 optimization)
+
+   **CAMPPlus**:
+   ```
+   Architecture: ... → block3 → transit3 → out_nonlinear → stats (pool) → dense → projection
+                                                                           ↑
+                                                                       Replaced
+   ```
+   - **Replaced layers**:
+     - `xvector.dense`: DenseLayer(pool_out_dim → new_embed_dim)
+       - DenseLayer = Conv1d(1x1) + BatchNorm (affine=False)
+   - **Input dimension**: Determined by pooling layer output (`pool_out_dim`)
+   - **Output dimension**: `new_embed_dim`
+
+   **ECAPA-TDNN** (ECAPA_TDNN_GLOB_c512, ECAPA_TDNN_GLOB_c1024, etc.):
+   ```
+   Architecture: ... → layer4 → attention → pool → bn5 → fc6 → bn6 → projection
+                                                          ↑
+                                                      Replaced
+   ```
+   - **Replaced layers**:
+     - `fc6`: Conv1d(channels → new_embed_dim, kernel_size=1)
+   - **Input dimension**: Number of channels after layer4 (`channels`)
+   - **Output dimension**: `new_embed_dim`
+
+   **TDNN/XVEC**:
+   ```
+   Architecture: ... → fc5 → fc6 → projection
+                              ↑
+                          Replaced
+   ```
+   - **Replaced layers**:
+     - `fc6`: Linear(fc5_out_dim → new_embed_dim)
+   - **Input dimension**: fc5 output dimension (`fc5_out_dim`)
+   - **Output dimension**: `new_embed_dim`
+
+5. **Ensures embedding layers are trainable** (overrides freezing strategy for these layers)
+
+6. **Replaces projection layer** with new dimension (in_features = `new_embed_dim`)
+
+#### Benefits
+
+- **Reduced model size**: e.g., 256→128 cuts embedding layer parameters in half
+- **Faster inference**: Smaller embeddings mean faster similarity computations
+- **Reduced overfitting**: Can improve performance on smaller datasets
+- **Deployment friendly**: Ideal for resource-constrained devices
+- **Flexible compression**: Test different embedding sizes (256→128→64)
+
+#### Complete Example
+
+```yaml
+# conf/finetune_resnet34_emb128.yaml
+exp_dir: exp/ResNet34-finetune-emb128
+checkpoint: pretrained_models/resnet34_emb256/avg_model.pt  # Pretrained with 256-dim
+num_epochs: 30
+
+model: ResNet34
+model_args:
+  feat_dim: 80
+  embed_dim: 128          # Target embedding dimension
+  pooling_func: "ASTP"
+  two_emb_layer: False    # Must match pretrained model
+
+finetune_config:
+  freeze_strategy: "only"
+  freeze_layers:
+    - "conv1"             # Freeze early feature extraction
+    - "bn1"
+    - "layer1"
+    - "layer2"
+  # layer3, layer4, pool, seg_1 will be trainable
+  new_embed_dim: 128      # Replace seg_1 with 128-dim output
+  freeze_projection: False
+
+scheduler_args:
+  initial_lr: 0.01        # Normal fine-tuning LR
+  final_lr: 0.00001
+```
+
+#### Model Size Comparison
+
+| Model | Original embed_dim | New embed_dim | Embedding Layer Params | Savings |
+|-------|-------------------|---------------|------------------------|---------|
+| ResNet34 (pool_out=512) | 256 | 128 | 512×256 → 512×128 | ~131K params |
+| ResNet34 (pool_out=512) | 256 | 64 | 512×256 → 512×64 | ~229K params |
+| CAMPPlus (pool_out=1536) | 512 | 256 | 1536×512 → 1536×256 | ~786K params |
+| CAMPPlus (pool_out=1536) | 512 | 128 | 1536×512 → 1536×128 | ~983K params |
+
+**Note**: Projection layer size also changes (embed_dim × num_speakers), providing additional savings.
+
+#### Important Considerations
+
+1. **Must match pretrained model architecture**: Ensure `two_emb_layer`, `pooling_func`, and other model args match the pretrained model (except `embed_dim`)
+
+2. **Embedding layer is always trainable**: When `new_embed_dim` is specified, the embedding layer will be trained regardless of your freezing strategy
+
+3. **Feature extractor stays frozen/partially frozen**: Only the embedding and projection layers adapt to the new dimension
+
+4. **Recommended workflow**:
+   - Start with small dimension reduction (256→192 or 256→128)
+   - Monitor validation performance
+   - If performance is acceptable, try more aggressive reduction (128→64)
+
+5. **Training time**: Slightly longer than standard fine-tuning since embedding layer trains from scratch
+
+#### Advanced: Testing Multiple Dimensions
+
+You can experiment with different embedding dimensions to find the optimal size/performance tradeoff:
+
+```bash
+# Test different embedding dimensions
+for embed_dim in 256 192 128 64; do
+  exp_dir=exp/ResNet34-finetune-emb${embed_dim}
+  torchrun --nproc_per_node=2 \
+    wespeaker/bin/finetune.py \
+    --config conf/finetune_base.yaml \
+    --exp_dir ${exp_dir} \
+    --model_args.embed_dim ${embed_dim} \
+    --finetune_config.new_embed_dim ${embed_dim}
+done
+
+# Compare results
+python tools/compare_embeddings.py \
+  --dirs exp/ResNet34-finetune-emb*
+```
+
+#### Supported Models
+
+| Model Family | Status | Replaced Layers |
+|--------------|--------|-----------------|
+| ResNet (all variants) | ✓ | seg_1, seg_2, seg_bn_1 |
+| CAMPPlus | ✓ | xvector.dense |
+| ECAPA-TDNN | ✓ | fc6 |
+| TDNN/XVEC | ✓ | fc6 |
+| ERes2Net | ✓ | Same as ResNet |
+| Res2Net | ✓ | Same as ResNet |
+| SimAM_ResNet | ✓ | Same as ResNet |
+| XI_VEC | ✓ | Same as ECAPA-TDNN |
+| RepVGG | ⚠️ | Not yet implemented |
+| Gemini_DFResNet | ⚠️ | Not yet implemented |
+| whisper_PMFA | ⚠️ | Not yet implemented |
+
+For unsupported models, the script will log a warning and continue with the original embedding dimension.
+
 ### Projection Layer Settings
 
 The projection layer is always replaced with a new one (for the new number of speakers). You can control whether it's frozen:

@@ -54,6 +54,7 @@ def setup_model_for_finetuning(
                 - freeze_strategy: "all" | "none" | "exclude" | "only"
                 - freeze_layers: list of layer name patterns
                 - freeze_projection: bool (default: False)
+                - new_embed_dim: int or None (if set, replaces embedding layer)
 
     Returns:
         model: Configured model ready for fine-tuning
@@ -66,11 +67,14 @@ def setup_model_for_finetuning(
     freeze_strategy = finetune_config.get('freeze_strategy', 'exclude')
     freeze_layers = finetune_config.get('freeze_layers', ['projection', 'pool'])
     freeze_projection = finetune_config.get('freeze_projection', False)
+    new_embed_dim = finetune_config.get('new_embed_dim', None)
 
     logger.info("<== Fine-tuning Configuration ==>")
     logger.info(f"Freeze strategy: {freeze_strategy}")
     logger.info(f"Freeze layers: {freeze_layers}")
     logger.info(f"Freeze projection: {freeze_projection}")
+    if new_embed_dim is not None:
+        logger.info(f"New embedding dimension: {new_embed_dim} (was {configs['model_args']['embed_dim']})")
 
     # 1. Instantiate model template
     model = get_speaker_model(configs['model'])(**configs['model_args'])
@@ -80,10 +84,30 @@ def setup_model_for_finetuning(
     checkpoint = torch.load(ckpt_path, map_location="cpu", weights_only=True)
     sd = checkpoint.get("model_state_dict", checkpoint)
 
-    # 3. Strip out old projection layer to avoid shape mismatch
-    sd = {k: v for k, v in sd.items() if not k.startswith("projection.")}
+    # 3. Strip out layers that will be replaced
+    # Always strip projection layer
+    keys_to_remove = [k for k in sd.keys() if k.startswith("projection.")]
 
-    # 4. Load everything else (strict=False to allow missing projection)
+    # If changing embedding dimension, also strip embedding layers
+    if new_embed_dim is not None:
+        # Embedding layer patterns for different architectures
+        embedding_patterns = [
+            "seg_1.",      # ResNet embedding layers
+            "seg_2.",      # ResNet second embedding layer (if two_emb_layer=True)
+            "seg_bn_1.",   # ResNet embedding batch norm
+            "xvector.dense.",  # CAMPPlus/ECAPA embedding layer
+            "fc6.",        # TDNN embedding layer
+        ]
+        for key in list(sd.keys()):
+            if any(pattern in key for pattern in embedding_patterns):
+                keys_to_remove.append(key)
+
+    for key in keys_to_remove:
+        sd.pop(key, None)
+
+    logger.info(f"Stripped {len(keys_to_remove)} layer(s) from checkpoint: projection and embedding layers")
+
+    # 4. Load everything else (strict=False to allow missing layers)
     missing_keys, unexpected_keys = model.load_state_dict(sd, strict=False)
     logger.info(f"Loaded checkpoint - Missing keys: {len(missing_keys)}, Unexpected keys: {len(unexpected_keys)}")
 
@@ -124,13 +148,63 @@ def setup_model_for_finetuning(
                 for p in module.parameters():
                     p.requires_grad = False
 
-    # 6. Replace the projection head with new one for new number of classes
+    # 6. Replace embedding layer if new_embed_dim is specified
+    if new_embed_dim is not None:
+        logger.info(f"<== Replacing Embedding Layer ==>")
+        model_name = configs['model']
+
+        # Detect model architecture and rebuild embedding layer
+        if model_name.startswith('ResNet') or model_name.startswith('SimAM_ResNet'):
+            # ResNet models: rebuild seg_1 (and seg_2 if two_emb_layer=True)
+            two_emb_layer = configs['model_args'].get('two_emb_layer', False)
+            model.seg_1 = torch.nn.Linear(model.pool_out_dim, new_embed_dim)
+            logger.info(f"Replaced ResNet seg_1: {model.pool_out_dim} -> {new_embed_dim}")
+
+            if two_emb_layer:
+                model.seg_bn_1 = torch.nn.BatchNorm1d(new_embed_dim, affine=False)
+                model.seg_2 = torch.nn.Linear(new_embed_dim, new_embed_dim)
+                logger.info(f"Replaced ResNet seg_2 and seg_bn_1 for two_emb_layer=True")
+            else:
+                model.seg_bn_1 = torch.nn.Identity()
+                model.seg_2 = torch.nn.Identity()
+
+        elif model_name.startswith('CAMPPlus'):
+            # CAMPPlus: rebuild xvector.dense (DenseLayer)
+            from wespeaker.models.campplus import DenseLayer
+            model.xvector.dense = DenseLayer(model.pool_out_dim, new_embed_dim, config_str='batchnorm_')
+            logger.info(f"Replaced CAMPPlus xvector.dense: {model.pool_out_dim} -> {new_embed_dim}")
+
+        elif model_name.startswith('ECAPA_TDNN'):
+            # ECAPA-TDNN: rebuild fc6 (Conv1d layer)
+            model.fc6 = torch.nn.Conv1d(model.channels, new_embed_dim, kernel_size=1)
+            logger.info(f"Replaced ECAPA_TDNN fc6: {model.channels} -> {new_embed_dim}")
+
+        elif model_name.startswith('XVEC'):
+            # TDNN/XVEC: rebuild fc6
+            model.fc6 = torch.nn.Linear(model.fc5_out_dim, new_embed_dim)
+            logger.info(f"Replaced XVEC fc6: {model.fc5_out_dim} -> {new_embed_dim}")
+
+        else:
+            logger.warning(f"Embedding layer replacement not implemented for {model_name}")
+            logger.warning("Embedding dimension will remain unchanged")
+
+        # Update embed_dim in configs for projection layer
+        configs['model_args']['embed_dim'] = new_embed_dim
+
+        # Always ensure embedding layers are trainable
+        embedding_layer_names = ['seg_1', 'seg_2', 'seg_bn_1', 'xvector.dense', 'fc6']
+        for name, param in model.named_parameters():
+            if any(emb_name in name for emb_name in embedding_layer_names):
+                param.requires_grad = True
+        logger.info("Embedding layers set to trainable")
+
+    # 7. Replace the projection head with new one for new number of classes
     in_features = configs['model_args']['embed_dim']
     projection = get_projection(configs['projection_args'])
     model.add_module("projection", projection)
     logger.info(f"Replaced projection layer with new one (out_features={new_num_classes})")
 
-    # 7. Handle projection layer freezing
+    # 8. Handle projection layer freezing
     if freeze_projection:
         logger.info("Freezing projection layer")
         for p in model.projection.parameters():
@@ -141,12 +215,12 @@ def setup_model_for_finetuning(
         for p in model.projection.parameters():
             p.requires_grad = True
 
-    # 8. Report trainable parameters
+    # 9. Report trainable parameters
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     total_params = sum(p.numel() for p in model.parameters())
     logger.info(f"Trainable parameters: {trainable_params:,} / {total_params:,} ({100*trainable_params/total_params:.2f}%)")
 
-    # 9. Log which layers are trainable
+    # 10. Log which layers are trainable
     logger.info("<== Trainable Layers ==>")
     trainable_layers = []
     for name, param in model.named_parameters():
