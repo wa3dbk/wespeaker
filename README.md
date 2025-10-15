@@ -135,4 +135,4 @@ If you find wespeaker useful, please cite it as
 ```
 ## Looking for contributors
 
-If you are interested to contribute, feel free to contact @wsstriving or @robin1001
+If you are interested to contribute, feel free to contact @wa3dbk
