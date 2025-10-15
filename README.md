@@ -1,4 +1,4 @@
-# WeSpeaker
+# WeSpeaker finetuning
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-brightgreen.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python-Version](https://img.shields.io/badge/Python-3.8%7C3.9-brightgreen)](https://github.com/wenet-e2e/wespeaker)
@@ -12,15 +12,45 @@
 | [**Modelscope Demo**](https://www.modelscope.cn/studios/wenet/Speaker_Verification_in_WeSpeaker/summary)
 
 
-WeSpeaker mainly focuses on [**speaker embedding learning**](https://wsstriving.github.io/talk/ncmmsc_slides_shuai.pdf), with application to the speaker verification task. We support
-online feature extraction or loading pre-extracted features in kaldi-format.
+**TL;DR:** Practical, config-driven fine-tuning for WeSpeaker models (ResNet, ECAPA-TDNN, CAMPPlus, …) with:
+* Flexible layer-freezing strategies (exclude/only/none/all)
+* Pattern-based layer selection (by layer name substrings)
+* Optional embedding-dimension change during fine-tuning (e.g., 256→128)
+* Clean VoxCeleb-style recipes & runnable commands
+* Full [fine-tuning guide](examples/voxceleb/v2/README_finetune.md).
 
-## Installation
+## Why this repo? 
+[WeSpeaker](https://github.com/wenet-e2e/wespeaker/) already provides strong training pipelines and docs. This fork adds a focused set of fine-tuning utilities & recipes to adapt pretrained models to your target domains (new speakers, languages, channels) without re-training from scratch. See the upstream docs & paper for the broader toolkit.
 
-### Install python package
+## Features 
+* 🔧 Layer freezing, your way — choose from multiple strategies and specify trainable/frozen parts via name patterns (e.g., layer4, pool, xvector.dense).
+* 🧩 Architecture-aware — examples for ResNet (18–293), ECAPA-TDNN, CAMPPlus, etc.
+* 🪄 Change embedding size during fine-tune (e.g., 256→128/64) to speed up deployment and reduce memory, while keeping upstream feature extractors intact.
+* 🧪 Batteries included — VoxCeleb-style data layout, quickstart configs, and simple run scripts.
+Details and YAML snippets are in the [fine-tuning guide](examples/voxceleb/v2/README_finetune.md).
+
+## Installation 
+
+### Install for development & deployment
 ``` sh
+# Option A: use upstream pip install of wespeaker
 pip install git+https://github.com/wenet-e2e/wespeaker.git
+
+# Option B: dev env for this repo
+# Create conda env: pytorch version >= 1.12.1 is recommended !!!
+git clone https://github.com/wa3dbk/wespeaker-finetuning.git
+cd wespeaker-finetuning
+conda create -n wespeaker python=3.9
+conda activate wespeaker
+conda install pytorch=1.12.1 torchaudio=0.12.1 cudatoolkit=11.3 -c pytorch -c conda-forge
+pip install -r requirements.txt
+pre-commit install  # for clean and tidy code
 ```
+
+For general WeSpeaker usage and environment notes, see [upstream docs](https://wenet.org.cn/wespeaker/).
+
+## Usage
+
 **Command-line usage** (use `-h` for parameters):
 
 ``` sh
@@ -44,20 +74,6 @@ diar_result = model.diarize('audio.wav')
 
 Please refer to [python usage](docs/python_package.md) for more command line and python programming usage.
 
-### Install for development & deployment
-* Clone this repo
-``` sh
-git clone https://github.com/wenet-e2e/wespeaker.git
-```
-
-* Create conda env: pytorch version >= 1.12.1 is recommended !!!
-``` sh
-conda create -n wespeaker python=3.9
-conda activate wespeaker
-conda install pytorch=1.12.1 torchaudio=0.12.1 cudatoolkit=11.3 -c pytorch -c conda-forge
-pip install -r requirements.txt
-pre-commit install  # for clean and tidy code
-```
 
 ## 🔥 News
 * 2025.10.14: Add the possibility to change embed_dim during model fine-tuning, see [fine-tuning guidelines](examples/voxceleb/v2/README_finetune.md) for more details.
@@ -94,12 +110,6 @@ pre-commit install  # for clean and tidy code
    * 🔥 UPDATE 2023.07.14: We support NIST SRE16 recipe. After PLDA adaptation, we achieved 6.608%, 10.01%, and 2.974% EER on trial Pooled, Tagalog, and Cantonese, respectively.
 * [VoxConverse](https://github.com/wenet-e2e/wespeaker/tree/master/examples/voxconverse): Diarization recipe on the [VoxConverse dataset](https://www.robots.ox.ac.uk/~vgg/data/voxconverse/)
 
-## Discussion
-
-For Chinese users, you can scan the QR code on the left to follow our offical account of `WeNet Community`.
-We also created a WeChat group for better discussion and quicker response. Please scan the QR code on the right to join the chat group.
-| <img src="https://github.com/wenet-e2e/wenet-contributors/blob/main/wenet_official.jpeg" width="250px"> | <img src="https://github.com/wenet-e2e/wenet-contributors/blob/main/wespeaker/wangshuai.jpg" width="250px"> |
-| ---- | ---- |
 
 ## Citations
 If you find wespeaker useful, please cite it as
